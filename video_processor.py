@@ -1,6 +1,35 @@
 from pathlib import Path
 import yt_dlp
 import time
+import subprocess
+import os
+
+def convert_to_wav(input_path: str) -> str:
+    """Convert audio file to WAV format using ffmpeg."""
+    try:
+        output_path = str(Path(input_path).with_suffix('.wav'))
+        print("Converting audio to WAV format...")
+        
+        # Run ffmpeg to convert the file
+        subprocess.run([
+            'ffmpeg', '-i', input_path,
+            '-acodec', 'pcm_s16le',  # Use standard WAV codec
+            '-ar', '44100',  # Standard sample rate
+            '-ac', '1',  # Convert to mono
+            '-y',  # Overwrite output file if it exists
+            output_path
+        ], check=True, capture_output=True)
+        
+        # Remove the original file
+        os.remove(input_path)
+        print("Conversion completed successfully")
+        return output_path
+    except subprocess.CalledProcessError as e:
+        print(f"Error converting audio: {e.stderr.decode()}")
+        return None
+    except Exception as e:
+        print(f"Error converting audio: {str(e)}")
+        return None
 
 def download_audio(url: str, max_retries: int = 3) -> str:
     """
@@ -46,7 +75,12 @@ Downloaded successfully:
 - Duration: {duration} seconds
 - Format: {ext}
                 """)
-                return audio_path
+                
+                # Convert to WAV format
+                wav_path = convert_to_wav(audio_path)
+                if wav_path:
+                    return wav_path
+                return None
                 
         except Exception as e:
             if attempt < max_retries - 1:
