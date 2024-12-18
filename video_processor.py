@@ -3,6 +3,16 @@ import yt_dlp
 import time
 import subprocess
 import os
+import gc
+
+def cleanup_files(file_path: str):
+    """Clean up temporary files."""
+    try:
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+            print(f"Cleaned up temporary file: {file_path}")
+    except Exception as e:
+        print(f"Error cleaning up file {file_path}: {str(e)}")
 
 def convert_to_wav(input_path: str) -> str:
     """Convert audio file to WAV format using ffmpeg."""
@@ -21,14 +31,16 @@ def convert_to_wav(input_path: str) -> str:
         ], check=True, capture_output=True)
         
         # Remove the original file
-        os.remove(input_path)
+        cleanup_files(input_path)
         print("Conversion completed successfully")
         return output_path
     except subprocess.CalledProcessError as e:
         print(f"Error converting audio: {e.stderr.decode()}")
+        cleanup_files(input_path)  # Clean up input file on error
         return None
     except Exception as e:
         print(f"Error converting audio: {str(e)}")
+        cleanup_files(input_path)  # Clean up input file on error
         return None
 
 def download_audio(url: str, max_retries: int = 3) -> str:
@@ -53,6 +65,9 @@ def download_audio(url: str, max_retries: int = 3) -> str:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
     }
+    
+    audio_path = None
+    wav_path = None
     
     for attempt in range(max_retries):
         try:
@@ -86,9 +101,15 @@ Downloaded successfully:
             if attempt < max_retries - 1:
                 wait_time = 2 ** attempt
                 print(f"Download failed. Retrying in {wait_time} seconds...")
+                cleanup_files(audio_path)  # Clean up any partial downloads
+                cleanup_files(wav_path)    # Clean up any partial conversions
                 time.sleep(wait_time)  # Exponential backoff
                 continue
             print(f"All download attempts failed")
+            cleanup_files(audio_path)  # Final cleanup
+            cleanup_files(wav_path)    # Final cleanup
             return None
+        finally:
+            gc.collect()  # Force garbage collection
 
     return None 
