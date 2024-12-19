@@ -5,6 +5,11 @@ import subprocess
 import os
 import gc
 import shutil
+import librosa
+import numpy as np
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from statsmodels.tsa.seasonal import seasonal_decompose
 
 def get_free_space(path: str) -> float:
     """Return free space in GB."""
@@ -139,3 +144,137 @@ Downloaded successfully:
             gc.collect()
 
     return None 
+
+def analyze_audio_features(audio_data):
+    # Extract advanced audio features
+    features = {
+        'spectral_centroid': librosa.feature.spectral_centroid(y=audio_data),
+        'spectral_rolloff': librosa.feature.spectral_rolloff(y=audio_data),
+        'zero_crossing_rate': librosa.feature.zero_crossing_rate(y=audio_data),
+        'chroma_features': librosa.feature.chroma_stft(y=audio_data),
+        'tempo': librosa.beat.tempo(y=audio_data)[0],
+        'harmonic_percussive': librosa.effects.hpss(y=audio_data)
+    }
+    
+    # Calculate statistical measures
+    feature_stats = {
+        'energy_mean': np.mean(librosa.feature.rms(y=audio_data)),
+        'energy_var': np.var(librosa.feature.rms(y=audio_data)),
+        'tempo_stability': calculate_tempo_stability(audio_data),
+        'rhythm_strength': analyze_rhythm_strength(audio_data)
+    }
+    
+    return {**features, **feature_stats}
+
+def calculate_tempo_stability(audio_data):
+    # Analyze tempo variations over time windows
+    hop_length = 512
+    onset_env = librosa.onset.onset_strength(y=audio_data, hop_length=hop_length)
+    tempo_frames = librosa.util.frame(onset_env, frame_length=128, hop_length=32)
+    tempos = np.array([librosa.beat.tempo(onset_envelope=frame) for frame in tempo_frames])
+    return np.std(tempos)  # Lower value indicates more stable tempo
+
+def identify_song_patterns(songs_data):
+    # Prepare feature matrix
+    features_matrix = []
+    for song in songs_data:
+        features = [
+            song['tempo'],
+            song['energy_mean'],
+            song['spectral_centroid'].mean(),
+            song['zero_crossing_rate'].mean()
+        ]
+        features_matrix.append(features)
+    
+    # Normalize features
+    scaler = StandardScaler()
+    normalized_features = scaler.fit_transform(features_matrix)
+    
+    # Perform clustering
+    kmeans = KMeans(n_clusters=5)
+    clusters = kmeans.fit_predict(normalized_features)
+    
+    return clusters, kmeans.cluster_centers_
+
+def analyze_temporal_patterns(audio_data):
+    # Convert audio data to time series
+    rms_energy = librosa.feature.rms(y=audio_data)[0]
+    
+    # Perform seasonal decomposition
+    decomposition = seasonal_decompose(rms_energy, period=len(rms_energy)//8)
+    
+    return {
+        'trend': decomposition.trend,
+        'seasonal': decomposition.seasonal,
+        'residual': decomposition.resid
+    }
+
+def analyze_rhythm_strength(audio_data):
+    """Analyze rhythm characteristics and strength"""
+    hop_length = 512
+    onset_env = librosa.onset.onset_strength(y=audio_data, hop_length=hop_length)
+    pulse = librosa.beat.plp(onset_envelope=onset_env, sr=22050)
+    
+    return {
+        'pulse_strength': np.mean(pulse),
+        'rhythm_regularity': np.std(pulse),
+        'beat_positions': librosa.beat.beat_track(onset_envelope=onset_env)[1]
+    }
+
+def analyze_melodic_content(audio_data, sr=22050):
+    """Analyze melodic characteristics"""
+    # Extract pitch content
+    pitches, magnitudes = librosa.piptrack(y=audio_data, sr=sr)
+    
+    # Calculate pitch statistics
+    pitch_mean = np.mean(pitches[magnitudes > np.median(magnitudes)])
+    pitch_std = np.std(pitches[magnitudes > np.median(magnitudes)])
+    
+    # Extract melody contour
+    melody = librosa.feature.melodia(
+        y=audio_data,
+        sr=sr,
+        hop_length=128
+    )
+    
+    return {
+        'pitch_mean': pitch_mean,
+        'pitch_variability': pitch_std,
+        'melody_contour': melody,
+        'pitch_range': np.ptp(pitches[magnitudes > 0])
+    }
+
+def analyze_structural_segments(audio_data, sr=22050):
+    """Analyze song structure and segments"""
+    # Compute spectrogram
+    mfcc = librosa.feature.mfcc(y=audio_data, sr=sr, n_mfcc=13)
+    
+    # Detect structural boundaries
+    bound_frames = librosa.segment.detect_onsets(
+        librosa.power_to_db(mfcc),
+        backtrack=True
+    )
+    
+    # Convert frames to time
+    boundaries = librosa.frames_to_time(bound_frames)
+    
+    # Analyze segment characteristics
+    segments = []
+    for i in range(len(boundaries)-1):
+        start = int(boundaries[i] * sr)
+        end = int(boundaries[i+1] * sr)
+        segment_data = audio_data[start:end]
+        
+        segments.append({
+            'start_time': boundaries[i],
+            'end_time': boundaries[i+1],
+            'duration': boundaries[i+1] - boundaries[i],
+            'energy': np.mean(librosa.feature.rms(y=segment_data)),
+            'spectral_centroid': np.mean(librosa.feature.spectral_centroid(y=segment_data))
+        })
+    
+    return {
+        'segment_boundaries': boundaries,
+        'segment_details': segments,
+        'num_segments': len(segments)
+    }

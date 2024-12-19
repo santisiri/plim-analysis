@@ -59,3 +59,8 @@ out/
 
 # Optional: Vercel
 .vercel
+
+# Add these lines to ignore temporary analysis files
+results/temp/*
+results/*.npy
+results/clusters/*
